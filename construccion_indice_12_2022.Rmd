@@ -1,0 +1,398 @@
+---
+title: "construccion_indice"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+
+```{r}
+rm(list=ls())
+library(eph)
+library(dplyr)
+library(caret)
+datos <- get_microdata(year = 2005:2021, 
+                       trimester = 2,
+                       type = 'individual',
+                       vars = c('ANO4','TRIMESTRE' ,'CH04', 'ESTADO','CAT_OCUP','PP07G1','PP07G2',
+                                'PP07G3','PP07G4','PP07H','PP08D1','P21','PP3E_TOT',
+                                'PP03C','PP03D','REGION','NIVEL_ED','CH06','PP04D_COD','DECOCUR',
+                                'PP04A','PP03G','AGLOMERADO'))
+datos <- rename(datos, año = ANO4)
+datos$sexo = ifelse(datos$CH04==1, "Varón", "Mujer")
+```
+
+
+# Se elige con que base trabajar
+
+```{r}
+base<-eph_1_20
+```
+
+# Se rotulan las variables y definen niveles
+
+```{r}
+base$REGION_rot<-as.factor(base$REGION)
+levels(base$REGION_rot)<-c("Gran Buenos Aires", "NOA",
+                       "NEA", "Cuyo", "Pampeana", "Patagónica")
+
+base$sexo<-as.factor(base$CH04)
+levels(base$sexo)<-c("varones", "mujeres")
+
+base$CH06[base$CH06==-1]<-0
+base$grupos_edades<-cut(base$CH06, c(0,24,54,max(base$CH06)))
+
+base$NIVEL_ED[base$NIVEL_ED==9]<-NA
+base$NIVEL_ED[base$NIVEL_ED==7]<-0
+base$educacion<-as.factor(base$NIVEL_ED)
+levels(base$educacion)<-c("nunca asistió", "primario incompleto", "primario completo",
+                          "secundario incompleto", "secundario completo", "superior incompleto", 
+                          "superior completo")
+
+```
+
+# Se retienen solo personas ocupadas  
+
+```{r}
+ocupades<-subset(base, base$ESTADO==1)
+table(ocupades$CAT_OCUP)
+```
+
+
+# Seguridad = estabilidad + obra social  
+
+## Asalariades  
+
+### Estabilidad   
+Combina "a término" vs "permanente" (PP07C) con duración de los "a término" (PP07D).  
+Se hace para el subconjunto de asalariades
+```{r}
+asalariades<-subset(ocupades, ocupades$CAT_OCUP==3)
+table(asalariades$PP07C)
+asalariades$estabilidad<-ifelse(asalariades$PP07C==2, 6, ifelse(
+  asalariades$PP07C==1 & asalariades$PP07D==5, 5, ifelse(
+    asalariades$PP07C==1 & asalariades$PP07D==4, 4, ifelse(
+      asalariades$PP07C==1 & asalariades$PP07D== 3, 3, ifelse(
+        asalariades$PP07C==1 & asalariades$PP07D== 2, 2, ifelse(
+          asalariades$PP07C==1 & asalariades$PP07D== 1, 1, NA
+        )
+      )
+    )
+  )
+))
+table(asalariades$estabilidad)
+```
+
+### Obra social  
+Del cuestionario hogar CH08  
+
+```{r}
+table(asalariades$CH08)
+
+asalariades$obra_social <-1
+asalariades$obra_social[asalariades$CH08==4]<-0
+asalariades$obra_social[asalariades$CH08==9]<-NA
+
+table(asalariades$CH08, asalariades$obra_social)
+
+```
+
+### Combinación  
+Para que tengan igual peso se estandarizan al intevalo [0 - 0.50] por medio de $0.50*\frac{x-min}{max-min}$ cada una  
+
+```{r}
+asalariades$estabilidad_st<-.5*(asalariades$estabilidad-1)/5
+summary(asalariades$estabilidad_st)
+
+asalariades$obra_social_st<-.5*asalariades$obra_social
+summary(asalariades$obra_social_st)
+```
+
+## Seguridad  
+Combiación aditiva de las dos  
+```{r}
+asalariades$seguridad<-asalariades$estabilidad_st+
+  asalariades$obra_social_st
+summary(asalariades$seguridad)
+```
+
+
+## Cuenta propia  
+
+### Estabilidad  
+Combina capital (maquinaria PP05C_1, local PP05C_2, vehículo PP05C_3) y clientes (uno solo o varios PP05F)  
+Se hace para el subconjunto de cuenta propia  
+
+```{r}
+cuentapropia<-subset(ocupades,
+                     ocupades$CAT_OCUP==2 | ocupades$CAT_OCUP ==1)
+table(cuentapropia$PP05C_1)
+table(cuentapropia$PP05C_2)
+table(cuentapropia$PP05C_3)
+table(cuentapropia$PP05F)
+
+cuentapropia$maquinas<-0
+cuentapropia$maquinas[cuentapropia$PP05C_1==0]<-NA
+cuentapropia$maquinas[cuentapropia$PP05C_1==9]<-NA
+cuentapropia$maquinas[cuentapropia$PP05C_1==1]<-2
+cuentapropia$maquinas[cuentapropia$PP05C_1==2]<-1
+table(cuentapropia$maquinas, cuentapropia$PP05C_1)
+
+cuentapropia$local<-0
+cuentapropia$local[cuentapropia$PP05C_2==0]<-NA
+cuentapropia$local[cuentapropia$PP05C_2==9]<-NA
+cuentapropia$local[cuentapropia$PP05C_2==1]<-2
+cuentapropia$local[cuentapropia$PP05C_2==2]<-1
+table(cuentapropia$local, cuentapropia$PP05C_2)
+
+cuentapropia$vehiculo<-0
+cuentapropia$vehiculo[cuentapropia$PP05C_3==0]<-NA
+cuentapropia$vehiculo[cuentapropia$PP05C_3==9]<-NA
+cuentapropia$vehiculo[cuentapropia$PP05C_3==1]<-2
+cuentapropia$vehiculo[cuentapropia$PP05C_3==2]<-1
+table(cuentapropia$vehiculo, cuentapropia$PP05C_3)
+
+cuentapropia$clientes<-0
+cuentapropia$clientes[cuentapropia$PP05F==0]<-NA
+cuentapropia$clientes[cuentapropia$PP05F==9]<-NA
+cuentapropia$clientes[cuentapropia$PP05F==6]<-0
+cuentapropia$clientes[cuentapropia$PP05F==7]<-3
+
+table(cuentapropia$clientes, cuentapropia$PP05F)
+
+cuentapropia$estabilidad<-cuentapropia$maquinas+cuentapropia$local+
+  cuentapropia$vehiculo+cuentapropia$clientes
+
+table(cuentapropia$estabilidad)
+
+```
+
+### Obra social (del cuestionario hogar)
+```{r}
+table(cuentapropia$CH08)
+cuentapropia$obra_social<-1
+cuentapropia$obra_social[cuentapropia$CH08==4]<-0
+cuentapropia$obra_social[cuentapropia$CH08==9]<-NA
+
+table(cuentapropia$CH08, cuentapropia$obra_social)
+
+```
+
+### Combinación  
+Para que tengan igual peso se estandarizan al intevalo [0 - 0.50] por medio de $0.50*\frac{x-min}{max-min}$ cada una y luego se suman  
+
+```{r}
+cuentapropia$estabilidad_st<-.5*(cuentapropia$estabilidad)/9
+summary(cuentapropia$estabilidad_st)
+
+cuentapropia$obra_social_st<-.5*cuentapropia$obra_social
+summary(cuentapropia$obra_social_st)
+```
+
+
+## Seguridad  
+Combiación aditiva de las dos  
+
+```{r}
+cuentapropia$seguridad<-cuentapropia$estabilidad_st+
+  cuentapropia$obra_social_st
+summary(cuentapropia$seguridad)
+```
+
+### Se eliminan las variables que no están en ambas bases y se unen nuevamente  
+
+```{r}
+
+cuentapropia<-
+  subset(cuentapropia, select=-c(local, clientes, vehiculo, maquinas))
+
+ocupades<-data.frame(rbind(asalariades, cuentapropia))
+summary(ocupades$seguridad)
+ggplot(ocupades)+geom_histogram(aes(seguridad), bins = 5)
+
+summary(ocupades$seguridad)
+
+```
+
+
+# Consistencia  
+Es la relación entre la calificación de la tarea y la educación del trabajador  
+
+```{r}
+class(ocupades$PP04D_COD)
+ocupades$calif.ocup= substr(ocupades$PP04D_COD, 5,5)
+table(ocupades$calif.ocup)
+ocupades$calif.ocup[ocupades$calif.ocup==7]<-NA
+ocupades$calif.ocup[ocupades$calif.ocup==9]<-NA
+
+```
+
+
+Se considera consistente (1) si educación y calificación están ambas por encima o ambas por debajo de sus medianas e inconsistente (0) en caso contrario  
+
+```{r}
+ocupades$educa_num<-as.numeric(ocupades$educacion)
+ocupades$calif_num<-as.numeric(ocupades$calif.ocup)
+
+ocupades$consistencia<-as.factor(
+  ifelse(
+    (ocupades$educa_num >= median(ocupades$educa_num, na.rm = TRUE)) &
+      (ocupades$calif_num >= median(ocupades$calif_num, na.rm = TRUE)) |
+      (ocupades$educa_num < median(ocupades$educa_num, na.rm = TRUE)) &
+      (ocupades$calif_num < median(ocupades$calif_num, na.rm = TRUE)),1,0))
+
+```
+
+
+
+ 
+```{r}
+ggplot(ocupades)+
+  geom_point(aes(NIVEL_ED, calif.ocup, col=consistencia), alpha=.1, size=3)
+```
+
+
+
+
+# Ingresos  
+
+Se construye el ingreso laboral, combinando ingresos salariales con ingresos de cuentapropistas con o sin socios (en EPH son tres variables)    
+
+```{r}
+ocupades$ingreso_laboral<-ifelse(
+  (ocupades$CAT_OCUP==1 | ocupades$CAT_OCUP ==2) &
+    ocupades$PP06A==1,ocupades$PP06D, ifelse(
+      (ocupades$CAT_OCUP==1 | ocupades$CAT_OCUP ==2) &
+    ocupades$PP06A==2,ocupades$PP06C, ifelse(
+      ocupades$CAT_OCUP==3, ocupades$PP08D1, 0
+    )
+    )
+)
+summary(ocupades$ingreso_laboral)
+
+```
+Se retienen los casos con ingreso no nulo y horas semanales trabajadas no nulas y menores a 999  
+
+```{r}
+ocupades<-subset(ocupades, ocupades$ingreso_laboral>0 &
+                       ocupades$PP3E_TOT>0 & ocupades$PP3E_TOT < 999
+                   )
+```
+
+Ingreso - hora  
+
+```{r}
+ocupades$ingreso_hora_bruto<-ocupades$ingreso_laboral/(4*ocupades$PP3E_TOT)
+summary(ocupades$ingreso_hora)
+```
+
+Se retienen los que tienen ingreso  hora menor al $P_{99}$ 
+
+```{r}
+ocupades<-subset(ocupades, ocupades$ingreso_hora_bruto<
+                   quantile(ocupades$ingreso_hora_bruto,.99))
+```
+
+
+Se estandariza (puntaje $z$) respecto de las medias y desviaciones (ponderadas) de cada región  
+```{r}
+
+regiones<-c(1,40,41,42,43,44)
+for (i in regiones) {ocupades$ingreso_hora_z=(
+  ocupades$ingreso_hora_bruto-wtd.mean(
+    ocupades[ocupades$REGION==i,]$ingreso_hora_bruto, weights = ocupades[ocupades$REGION==i,]$PONDERA))/sqrt(wtd.var(
+      ocupades[ocupades$REGION==i,]$ingreso_hora_bruto, weights=ocupades[ocupades$REGION==i,]$PONDERA))
+  
+}
+summary(ocupades$ingreso_hora_bruto)
+```
+
+```{r}
+ggplot(ocupades)+geom_histogram(aes(ingreso_hora_z))
+
+```
+
+Y se estandariza al [0 1]  
+
+```{r}
+ocupades$ingreso_hora<-(ocupades$ingreso_hora_z-min(ocupades$ingreso_hora_z))/
+  (max(ocupades$ingreso_hora_z)-min(ocupades$ingreso_hora_z))
+
+ggplot(ocupades)+geom_histogram(aes(ingreso_hora))
+
+```
+
+# Combinación de los indicadores  
+
+¿será por PCA? por ahora aditivo nomás  
+
+```{r}
+ocupades$consistencia<-as.numeric(as.character(ocupades$consistencia))
+
+ocupades$calidad<-(ocupades$seguridad+ocupades$consistencia+4*ocupades$ingreso_hora)/6
+
+summary(ocupades$calidad)
+
+
+```
+
+
+```{r}
+ggplot(ocupades)+geom_histogram(aes(calidad))
+```
+
+## Comparación por sexos  
+
+```{r}
+
+t.test(ocupades$calidad~ocupades$sexo)
+
+```
+
+
+```{r}
+ggplot(ocupades) + geom_histogram(data=subset(ocupades, ocupades$sexo=="mujeres"),
+                   aes(calidad, y=..count../sum(..count..)),fill="green", bins = 20)+
+  geom_histogram(data=subset(ocupades, ocupades$sexo=="varones"),
+                   aes(calidad, y=(-1)*..count../sum(..count..)),fill="orange", bins = 20)+
+  coord_flip()+ xlab("Índice de calidad de la ocupación")+
+  ylab("Proporción de personas de cada sexo")+ 
+  scale_y_continuous(breaks=seq(-.16,.16,.04),
+                     labels=paste(100*abs(seq(-.16,.16,.04)),"%")) + theme_tufte()
+```
+
+
+Da mejor para mujeres, pero cuando se miran las componentes  
+
+```{r}
+t.test(ocupades$seguridad~ocupades$sexo)
+t.test(ocupades$consistencia~ocupades$sexo)
+t.test(ocupades$ingreso_hora~ocupades$sexo)
+```
+
+Las que aportan positivamente en las mujeres son seguridad y consistencia, mientras que en el ingreso la diferencia es a favor de los varones  
+
+## Comparación por sexos y regiones  
+
+```{r}
+
+ggplot(ocupades) + geom_histogram(data=subset(ocupades, ocupades$sexo=="mujeres"),
+                   aes(calidad, y=..count../sum(..count..)),fill="green", bins = 20)+
+  geom_histogram(data=subset(ocupades, ocupades$sexo=="varones"),
+                   aes(calidad, y=(-1)*..count../sum(..count..)),fill="orange", bins = 20)+
+  coord_flip()+ xlab("Índice de calidad de la ocupación")+
+  ylab("Proporción de personas de cada sexo")+ 
+  scale_y_continuous(breaks=seq(-.16,.16,.04),
+                     labels=paste(100*abs(seq(-.16,.16,.04)),"%")) +
+  facet_wrap(.~REGION_rot)+theme_tufte()
+
+```
+
+```{r}
+u<-lm(calidad~sexo+REGION_rot, data = ocupades)
+summary(u)
+```
+
+

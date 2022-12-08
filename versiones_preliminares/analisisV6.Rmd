@@ -1,0 +1,668 @@
+---
+title: "Regional differences in sex and origin, on work discrimination in Argentina 2019"
+subtitle: "Anexo: sintaxis de operaciones"
+author: "Eduardo Bologna"
+date:  "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+    pdf_document: default
+bibliography: calidad_ocupacion.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+```{r echo=FALSE, warning=FALSE}
+library(ggplot2)
+library(ggthemes)
+library(kableExtra)
+library(finalfit)
+library(MatchIt)
+library(Hmisc)
+library(corrplot)
+library(MASS)
+library(moments)
+library(nortest)
+```
+
+# Los datos  
+Lectura de la base, se toman todas las variables como factores para conservar los cinco dígitos en CNO
+```{r}
+ecetss<-read.table("ECETSS_ocupados.csv",
+                   header = TRUE, sep= ",",
+                   colClasses="factor")
+```
+
+
+# Componentes de los índices:  
+
+## Seguridad en el empleo  
+
+*seguridad_normalizada*
+Opción para el índice_2: temporalidad + obra social:
+C1P2.6
+1	Permanente, tiene trabajo durante todo el año o de manera continua
+2	De temporada o estacional
+3	Intermitente (no de temporada o estacionario)
+
+```{r}
+table(ecetss$C1P2.6)
+```
+
+
+Cruzada con la combinación de estas dos:  
+C2P4.2	¿Usted tiene obra social?		"Asalariados (cat_ocup = 3)"  
+1	Sí  
+2	No	
+99	Ns./Nc.	
+
+C2BP4.1  
+¿Usted tiene obra social? "Independientes (cat_ocup = 1 o 2)"  
+1	Sí  
+2	No	
+99	Ns./Nc.	
+
+```{r}
+addmargins(table(ecetss$C2P4.2))
+levels(ecetss$C2P4.2)<-c(NA, 1, 2, NA)
+ecetss$C2P4.2<-factor(ecetss$C2P4.2)
+
+levels(ecetss$C2BP4.1)<-c(NA, 1, 2, NA)
+ecetss$C2BP4.1<-factor(ecetss$C2BP4.1)
+addmargins(table(ecetss$C2BP4.1))
+
+
+ecetss$obra_social<-ifelse(ecetss$cat_ocup==3,
+                           ecetss$C2P4.2, ecetss$C2BP4.1)
+
+kable(addmargins(table(ecetss$obra_social, ecetss$C2P4.2)))
+kable(addmargins(table(ecetss$obra_social, ecetss$C2BP4.1)))
+kable(addmargins(table(ecetss$C1P2.6, ecetss$C2BP4.1)))
+```
+
+La variable seguridad tiene seis categorías que van de desde 1= intermitente sin obra social, hasta 6=estable con obra social
+
+```{r}
+table(ecetss$C1P2.6,ecetss$obra_social)
+ecetss$seguridad<-ifelse(
+  ecetss$C1P2.6==1 & ecetss$obra_social==1, 6, ifelse(
+    ecetss$C1P2.6==1 & ecetss$obra_social==2, 5, ifelse(
+      ecetss$C1P2.6==2 & ecetss$obra_social==1, 4,ifelse(
+        ecetss$C1P2.6==2 & ecetss$obra_social==2, 3, ifelse(
+          ecetss$C1P2.6==3 & ecetss$obra_social==1, 2, 1
+          )
+        )
+      )
+    ))
+
+summary(ecetss$seguridad)
+# verificación
+table(ecetss$obra_social, ecetss$seguridad, ecetss$C1P2.6)
+# de los permanentes, hay con seguridad 6 (tienen obra social) y 5 (no la tienen y así los demás)
+```
+
+Se estandariza:
+```{r warning=FALSE}
+ecetss$seguridad_normalizada<-
+  100*(ecetss$seguridad-min(ecetss$seguridad, na.rm = TRUE))/(
+    max(ecetss$seguridad, na.rm = TRUE)-min(ecetss$seguridad, na.rm = TRUE))
+
+summary(ecetss$seguridad_normalizada)
+ggplot(ecetss)+geom_histogram(aes(seguridad_normalizada))
+```
+
+
+
+## Consistencia educación - calificación  
+### Calificación ocupacional
+Se extrae el quinto dígito de CNO, se eliminan los casos no válidos, se rotula e invierte su codificación. Luego se lo trata como numérico.
+```{r}
+ecetss$calif.ocup= substr(ecetss$ocupa_cno, 5,5)
+
+ecetss$calif.ocup[ecetss$calif.ocup==8]<-NA
+ecetss$calif.ocup[ecetss$calif.ocup==9]<-NA
+ecetss$calif.ocup<-factor(ecetss$calif.ocup)
+
+levels(ecetss$calif.ocup)=c(
+  "profesional", "técnica", "operativa", "no calificada")
+
+ecetss$calif.ocup=factor(ecetss$calif.ocup,
+                         levels(
+                           factor(
+                             ecetss$calif.ocup))[c(4,3,2,1)])
+
+ecetss$calif.ocup_num<-as.numeric(ecetss$calif.ocup)
+
+# Verificación
+table(ecetss$calif.ocup, ecetss$calif.ocup_num)
+
+```
+
+### Educación  
+Se eliminan los valores perdidos, se trata como numérica
+```{r}
+ecetss$nivel_ed[ecetss$nivel_ed==99]<-NA
+ecetss$nivel_ed<-factor(ecetss$nivel_ed)
+
+ecetss$nivel_ed_num<-as.numeric(as.character(ecetss$nivel_ed))
+
+# verificación
+table(ecetss$nivel_ed, ecetss$nivel_ed_num)
+
+```
+
+
+### Inconsistencia  
+inconsistencia: más alto más inconsistencia
+```{r}
+ecetss$inconsistencia<-ecetss$nivel_ed_num/ecetss$calif.ocup_num
+summary(ecetss$inconsistencia)
+
+```
+
+Se ajusta el signo:
+*consistencia_normalizado*
+```{r}
+ecetss$consistencia_normalizado<-100*(ecetss$inconsistencia-max(ecetss$inconsistencia, na.rm = TRUE))/(-max(ecetss$inconsistencia, na.rm = TRUE)+min(ecetss$inconsistencia, na.rm = TRUE))
+
+```
+
+
+## Ingresos - hora  
+
+### Ingresos  
+Se lo trata como numérico y se retienen de la base solo los casos con ingreso mayor a cero y menor al percentil 99
+```{r}
+ecetss$ingreso_op_num<-as.numeric(as.character(ecetss$ingreso_op))
+summary(ecetss$ingreso_op_num)
+ecetss<-subset(ecetss, ecetss$ingreso_op_num>0 &
+  ecetss$ingreso_op_num<quantile(ecetss$ingreso_op_num, .99))
+
+```
+
+### Horas  
+Se eliminan dos casos con 24/24, 7/7 = 168 horas
+```{r}
+ecetss$horas_ocup_ppal<-as.numeric(as.character(ecetss$hs_sem_ref))
+table(ecetss$horas_ocup_ppal)
+summary(ecetss$horas_ocup_ppal)
+
+ecetss<-subset(ecetss, ecetss$horas_ocup_ppal>0 &
+                 ecetss$horas_ocup_ppal<168)
+
+```
+
+### Ingresos por hora semanal  
+```{r}
+ecetss$ing_hora<-ecetss$ingreso_op_num/(4*ecetss$horas_ocup_ppal)
+summary(ecetss$ing_hora)
+
+ecetss$ing_hora_bruto_normalizado<-
+  100*(
+    ecetss$ing_hora-min(ecetss$ing_hora, na.rm = TRUE))/(
+      max(ecetss$ing_hora, na.rm = TRUE)-min(
+        ecetss$ing_hora, na.rm = TRUE))
+
+ecetss$ing_hora_bruto_normalizado_log<-
+  100*(
+    log(ecetss$ing_hora)-log(min(
+      ecetss$ing_hora, na.rm = TRUE)))/(log(max(
+        ecetss$ing_hora, na.rm = TRUE))-log(min(
+          ecetss$ing_hora, na.rm = TRUE)))
+
+summary(ecetss$ing_hora_bruto_normalizado)
+```
+
+### Ajuste ingresos  
+
+Considerando que el ingreso tiene un valor relativo al lugar de residencia, se transforman los ingresos/hora de la ocupación principal en puntajes $z$, con las medias y desviaciones estándar de cada región. 
+
+1. Se construyen vectores que contienen medias y desviaciones estándar por región.
+
+```{r}
+regiones<-c(10, 40:44)
+ingresos_hora_medios_region<-vector(length = 6)
+
+for (j in 1:6) {
+  ingresos_hora_medios_region[[j]]<-
+    mean(subset(ecetss, ecetss$region==regiones[j])$ing_hora)
+}
+
+desviaciones_ingresos_hora_region<-vector(length = 6)
+
+for (j in 1:6) {
+  desviaciones_ingresos_hora_region[[j]]<-
+    sd(subset(ecetss, ecetss$region==regiones[j])$ing_hora)
+}
+
+```
+
+2. Se estandarizan los ingresos hora en torno a la media y desviación propias de cada región.
+```{r}
+ecetss$z_ingreso_hora<-
+  ifelse(
+    ecetss$region==10,
+    (ecetss$ing_hora-ingresos_hora_medios_region[1])/
+      desviaciones_ingresos_hora_region[1],
+    ifelse(
+      ecetss$region==40,
+      (ecetss$ing_hora-ingresos_hora_medios_region[2])/
+        desviaciones_ingresos_hora_region[2],
+      ifelse(
+        ecetss$region==41,
+        (ecetss$ing_hora-ingresos_hora_medios_region[3])/
+          desviaciones_ingresos_hora_region[3],
+        ifelse(ecetss$region==42,
+               (ecetss$ing_hora-ingresos_hora_medios_region[4])/
+                 desviaciones_ingresos_hora_region[4],
+          ifelse(
+            ecetss$region==43,
+            (ecetss$ing_hora-ingresos_hora_medios_region[5])/
+              desviaciones_ingresos_hora_region[5],
+            (ecetss$ing_hora-ingresos_hora_medios_region[6])/
+              desviaciones_ingresos_hora_region[6])))))
+
+```
+
+3. Se normaliza  
+
+*ingreso_hora_normalizado*
+```{r}
+ecetss$ingreso_hora_normalizado<-
+  100*(ecetss$z_ingreso_hora-min(
+    ecetss$z_ingreso_hora, na.rm = TRUE))/
+  (max(ecetss$z_ingreso_hora, na.rm = TRUE)-min(
+    ecetss$z_ingreso_hora, na.rm = TRUE))
+
+summary(ecetss$ingreso_hora_normalizado)
+
+```
+
+## Autonomía  
+Se usan variables de ECETSS que no están en EPH: aut_org, aut_metod, aut_ritmo, aut_pausas, aut_cantt  
+Con categorías:
+La categorízación de cada una es:
+1	Siempre
+2	Muchas veces
+3	Algunas veces
+4	Solo alguna vez
+5	Nunca
+99 ns/nc
+
+Se eliminan los 99, se la trata como numérica y se define el índice como suma simple
+```{r}
+levels(ecetss$aut_org)<-c(1,2,3,4,5,NA)
+levels(ecetss$aut_metod)<-c(1,2,3,4,5,NA)
+levels(ecetss$aut_ritmo)<-c(1,2,3,4,5,NA)
+levels(ecetss$aut_pausas)<-c(1,2,3,4,5,NA)
+levels(ecetss$aut_cantt)<-c(1,2,3,4,5,NA)
+
+ecetss$aut_org_num<-as.numeric(as.character(ecetss$aut_org))
+ecetss$aut_metod_num<-as.numeric(as.character(ecetss$aut_metod))
+ecetss$aut_ritmo_num<-as.numeric(as.character(ecetss$aut_ritmo))
+ecetss$aut_pausas_num<-as.numeric(as.character(ecetss$aut_pausas))
+ecetss$aut_cantt_num<-as.numeric(as.character(ecetss$aut_cantt))
+
+
+ecetss$autonomia<-
+  ecetss$aut_org_num+ecetss$aut_metod_num+
+  ecetss$aut_ritmo_num+
+  ecetss$aut_pausas_num+
+  ecetss$aut_cantt_num
+
+summary(ecetss$autonomia)
+ggplot(ecetss)+geom_histogram(aes(autonomia))
+```
+
+Se normaliza con el orden invertido para que los números más altos correspondan a mayor autonomía:
+
+```{r}
+ecetss$autonomia_normalizada<-
+  100*(
+    ecetss$autonomia-max(ecetss$autonomia, na.rm = TRUE))/
+  (-max(ecetss$autonomia, na.rm = TRUE)+
+     min(ecetss$autonomia, na.rm = TRUE))
+# verificación
+table(ecetss$autonomia_normalizada, ecetss$autonomia)
+```
+
+
+
+## Primer índice de calidad (comparable con datos EPH)
+
+```{r}
+ecetss$IC<-(ecetss$seguridad_normalizada+
+              ecetss$consistencia_normalizado+
+              ecetss$ingreso_hora_normalizado)/3
+ecetss<-subset(ecetss, is.na(ecetss$IC)==FALSE)
+```
+
+## Segundo índice de calidad (agrega autonomía)
+
+```{r}
+ecetss$IC_2<-(ecetss$seguridad_normalizada+
+                ecetss$consistencia_normalizado+
+                ecetss$ingreso_hora_normalizado+
+                ecetss$autonomia_normalizada)/4
+
+ecetss<-subset(ecetss, is.na(ecetss$IC_2)==FALSE)
+
+```
+
+
+# Análisis de los componentes de los índices  
+## Coeficientes de Spearman y significación  
+```{r}
+para_correlaciones<-ecetss[,c(381,388,375,394,396,397)]
+v<-rcorr(as.matrix(para_correlaciones), type = "spearman")
+v_r<-as.data.frame(v[1])
+names(v_r)<-c("r.consistencia", "r.ingr_hora", "r.seguridad","r.autonomia", "r.IC", "r.IC_2" )
+kable(v_r)
+
+v_sig<-as.data.frame(v[3])
+names(v_sig)<-c("p.consistencia", "p.ingr_hora", "p.seguridad","p.autonomia", "p.IC", "p.IC_2" )
+
+kable(v_sig)
+```
+
+```{r}
+dimnames(v$r)<-list(names(v_r), names(v_r))
+corrplot(v$r)
+```
+
+
+## Se retiene IC  
+Porque correlaciona mejor con las componentes, la correlación entre ellos es alta y permitirá comparar con EPH  
+
+# Descripción del índice  
+```{r}
+summary(ecetss$IC)
+skewness(ecetss$IC)
+kurtosis(ecetss$IC)
+
+
+skewness(ecetss$IC^3.19)
+(summary(ecetss$IC^3.19))^(1/3.19)
+(abs(skewness(ecetss$IC^3.19)))^(1/3.19)
+(abs(kurtosis(ecetss$IC^3.19)))^(1/3.19)
+
+
+lillie.test(x = ecetss$IC)
+```
+
+
+# Variables explicativas
+
+```{r}
+ecetss$sexo<-ecetss$C3P16.1
+levels(ecetss$sexo)<-c("varones", "mujeres")
+
+ecetss$origen<-ecetss$C3P16.6
+levels(ecetss$origen)<-c("natives", "extranjeres", NA)
+
+ecetss$edad<-as.numeric(as.character(ecetss$C0P10.3))
+```
+
+## Comparaciones de las distribuciones por sexos y orígenes  
+
+```{r warning=FALSE}
+t.test(IC~sexo, data = ecetss)
+t.test(IC~origen, data = ecetss)
+ggplot(ecetss)+geom_histogram(aes(IC, y=..density.., fill=origen), bins = 20)+
+  xlab("Índice de calidad laboral")+theme_tufte()+facet_grid(sexo~origen)+
+  scale_fill_brewer(palette="Dark2")+ theme(legend.position = "none") 
+
+ecetss$region_cod<-ecetss$region
+levels(ecetss$region_cod)<-c("Gran Buenos Aires", "NOA", "NEA", "Cuyo", "Pampeana", "Patagónica")
+
+ggplot(ecetss)+geom_histogram(aes(IC, y=..density..), bins = 20, fill="green")+
+  xlab("Índice de calidad laboral")+theme_tufte()+facet_wrap(ecetss$region_cod)+
+  scale_fill_brewer(palette="Dark2")+ theme(legend.position = "none") 
+```
+
+## Comparaciones de las medias por sexos y orígenes  
+
+```{r}
+grupos<-c("varones nativos", "varones extranjeros",
+          "mujeres nativas", "mujeres extranjeras", "total")
+
+medias<-
+  round(c(mean(ecetss[ecetss$sexo=="varones" & ecetss$origen=="natives",]$IC, na.rm = TRUE),
+          mean(ecetss[ecetss$sexo=="varones" & ecetss$origen=="extranjeres",]$IC, na.rm = TRUE),
+          mean(ecetss[ecetss$sexo=="mujeres"& ecetss$origen=="natives",]$IC, na.rm = TRUE),
+          mean(ecetss[ecetss$sexo=="mujeres"& ecetss$origen=="extranjeres",]$IC, na.rm = TRUE),
+          mean(ecetss$IC, na.rm = TRUE)),1)
+
+medias_IC<-data.frame(cbind(medias, grupos))
+mean(ecetss$IC, na.rm = TRUE)
+ggplot(medias_IC)+
+  geom_bar(aes(grupos,medias), stat = "identity", fill="green",
+           data = medias_IC[-5,])+
+           geom_hline(yintercept = 3+.32/.9, col="blue", size=2)+
+  ylab("Medias del Índice de Calidad Laboral")+
+  theme_tufte()
+```
+
+## Índice según edad
+```{r}
+cor.test(ecetss$IC,ecetss$edad)
+
+ggplot(ecetss)+geom_point(aes(edad, IC),col="green", alpha=0.3)+
+  geom_abline(col="red")+ylab("Índice de Calidad Laboral")+
+theme_tufte()
+
+```
+
+
+# Modelo lineal  
+
+### Directo con IC  
+```{r}
+modelo.1<-lm(IC~origen+sexo+region_cod+edad, data = ecetss)
+summary(modelo.1)
+
+```
+
+## Transformación Box-Cox  
+
+```{r}
+para.ajuste<-boxcox(modelo.1, lambda = seq(-4,4))
+para.ajuste$x[which(para.ajuste$y==max(para.ajuste$y))]
+ecetss$ICbc<-ecetss$IC^3.1919
+ecetss$ICnuevo<-100*(ecetss$ICbc-min(ecetss$ICbc))/(max(ecetss$ICbc)-min(ecetss$ICbc))
+
+```
+- Modelo corregido Box-Cox  
+```{r}
+modelo.2<-lm(ICnuevo~origen+sexo+region_cod+edad, data = ecetss)
+summary(modelo.2)
+
+```
+
+## Con PCA  
+```{r}
+# se retienen solo las tres componentes de IC
+solo_componentes_indice<-ecetss[, c(376,381,389)]
+# se ejecuta pca
+pca<-prcomp(solo_componentes_indice)
+# se agregan a la base estas tres columnas
+ecetss<-data.frame(cbind(ecetss,pca$x))
+# para facilitar la comparación se cambia el signo
+# a PC1 y se llama QI
+ecetss$QI<- -ecetss$PC1
+
+```
+
+
+- Modelo corregido con PCA (conservando la primera componente, con signo cambiado)  
+
+```{r}
+modelo.3<-lm(QI~origen+sexo+region_cod+edad, data = ecetss) 
+summary(modelo.3)
+
+```
+
+## Resumen de la comparación de los modelos  
+
+```{r}
+coeficientes<-data.frame(modelo.1$coefficients, modelo.2$coefficients,
+                         modelo.3$coefficients)
+kable(round(coeficientes,3), col.names = c("modelo 1", "modelo 2", "modelo 3"))
+
+R_cuadrado<- data.frame(summary(modelo.1)$r.squared,
+                        summary(modelo.2)$r.squared,
+                        summary(modelo.3)$r.squared)
+kable(round(R_cuadrado,3), col.names = c("modelo 1", "modelo 2", "modelo 3"))
+```
+
+## Comparación por sexos  
+```{r}
+wilcox.test(ecetss$ICnuevo ~ ecetss$sexo)
+u<-t.test(ecetss$ICnuevo ~ ecetss$sexo)
+100*(u[[5]][1]-u[[5]][2])/u[[5]][2]
+u
+
+mediana_varones<-median(subset(ecetss ,ecetss$sexo=="varones")$ICnuevo)
+mediana_mujeres<-median(subset(ecetss ,ecetss$sexo=="mujeres")$ICnuevo)
+gap_sexos<-(mediana_varones-mediana_mujeres)/mediana_varones
+gap_sexos
+
+```
+
+```{r}
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=sexo, fill=sexo))+theme_tufte()+ylab("Índice de calidad ocupacional")+
+    theme(legend.position = "none")
+```
+
+## Comparación por orígenes  
+```{r}
+wilcox.test(ecetss$ICnuevo ~ ecetss$origen)
+v<-t.test(ecetss$ICnuevo ~ ecetss$origen)
+100*(v[[5]][1]-v[[5]][2])/v[[5]][2]
+v
+
+mediana_natives<-median(subset(ecetss ,ecetss$origen=="natives")$ICnuevo)
+mediana_extranjeres<-median(subset(ecetss ,ecetss$origen=="extranjeres")$ICnuevo)
+gap_origenes<-(mediana_natives-mediana_extranjeres)/mediana_natives
+gap_origenes
+mediana_natives
+mediana_extranjeres
+```
+
+```{r}
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=origen, fill=origen))+ylab("Índice de calidad ocupacional")+theme_tufte()+
+    theme(legend.position = "none")
+```
+
+## Comparación por regiones  
+```{r}
+kruskal.test(ecetss$ICnuevo ~ ecetss$region_cod)
+w<-aggregate(ecetss$ICnuevo, list(ecetss$region_cod), FUN=median)
+mean(w[[2]])
+sd(w[[2]])
+cv_regiones<-round(100*sd(w[[2]])/mean(w[[2]]),2)
+cv_regiones
+```
+
+```{r}
+
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=reorder(region_cod, -ICnuevo), fill=region_cod))+ylab("Índice de calidad ocupacional")+xlab("Región")+
+  theme_tufte()+
+    theme(legend.position = "none")
+```
+
+
+## Otras comparaciones  
+
+Acá debería calcular el grado de segregación por sexos y orígenes, según región  
+
+```{r}
+mediana_varones_GBA<-median(subset(ecetss ,ecetss$sexo=="varones" & 
+                                     ecetss$region_cod=="Gran Buenos Aires")$ICnuevo)
+mediana_mujeres_GBA<-median(subset(ecetss ,ecetss$sexo=="mujeres"& 
+                                     ecetss$region_cod=="Gran Buenos Aires")$ICnuevo)
+gap_sexos_GBA<-(mediana_varones_GBA-mediana_mujeres_GBA)/mediana_varones_GBA
+gap_sexos_GBA
+
+
+```
+
+```{r}
+mediana_natives_GBA<-median(subset(ecetss ,ecetss$origen=="natives"& 
+                                     ecetss$region_cod=="Gran Buenos Aires")$ICnuevo)
+mediana_extranjeres_GBA<-median(subset(ecetss ,ecetss$origen=="extranjeres"& 
+                                     ecetss$region_cod=="Gran Buenos Aires")$ICnuevo)
+gap_origenes_GBA<-(mediana_natives_GBA-mediana_extranjeres_GBA)/mediana_natives_GBA
+gap_origenes_GBA
+```
+```{r}
+mediana_varones_NOA<-median(subset(ecetss ,ecetss$sexo=="varones" & 
+                                     ecetss$region_cod=="NOA")$ICnuevo)
+mediana_mujeres_NOA<-median(subset(ecetss ,ecetss$sexo=="mujeres"& 
+                                     ecetss$region_cod=="NOA")$ICnuevo)
+gap_sexos_NOA<-(mediana_varones_NOA-mediana_mujeres_NOA)/mediana_varones_NOA
+gap_sexos_NOA
+
+
+```
+
+```{r}
+mediana_natives_NOA<-median(subset(ecetss ,ecetss$origen=="natives"& 
+                                     ecetss$region_cod=="NOA")$ICnuevo)
+mediana_extranjeres_NOA<-median(subset(ecetss ,ecetss$origen=="extranjeres"& 
+                                     ecetss$region_cod=="NOA")$ICnuevo)
+gap_origenes_NOA<-(mediana_natives_NOA-mediana_extranjeres_NOA)/mediana_natives_NOA
+gap_origenes_NOA
+```
+
+```{r}
+mediana_varones_NEA<-median(subset(ecetss ,ecetss$sexo=="varones" & 
+                                     ecetss$region_cod=="NEA")$ICnuevo)
+mediana_mujeres_NEA<-median(subset(ecetss ,ecetss$sexo=="mujeres"& 
+                                     ecetss$region_cod=="NEA")$ICnuevo)
+gap_sexos_NEA<-(mediana_varones_NEA-mediana_mujeres_NEA)/mediana_varones_NEA
+gap_sexos_NEA
+
+
+```
+
+```{r}
+mediana_natives_NEA<-median(subset(ecetss ,ecetss$origen=="natives"& 
+                                     ecetss$region_cod=="NEA")$ICnuevo)
+mediana_extranjeres_NEA<-median(subset(ecetss ,ecetss$origen=="extranjeres"& 
+                                     ecetss$region_cod=="NEA")$ICnuevo)
+gap_origenes_NEA<-(mediana_natives_NEA-mediana_extranjeres_NEA)/mediana_natives_NEA
+gap_origenes_NEA
+```
+
+falta patagonica, cuyo y pampeana
+
+######## Otra cosa  
+```{r}
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=sexo))+
+  facet_wrap(ecetss$region_cod)+theme_tufte()
+
+
+
+```
+
+```{r}
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=origen))+
+  facet_wrap(ecetss$region_cod)+theme_tufte()
+
+wilcox.test(ecetss$ICnuevo ~ ecetss$origen)
+```
+
+
+```{r}
+ggplot(ecetss)+geom_boxplot(aes(y=ICnuevo, x=sexo,
+                                fill=region_cod, alpha=sexo))+
+  facet_wrap(ecetss$region_cod ~ ecetss$origen)+theme_tufte()+
+  theme(legend.position = "none")
+```
+
+

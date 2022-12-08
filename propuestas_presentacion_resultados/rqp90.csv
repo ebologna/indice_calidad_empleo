@@ -1,0 +1,8 @@
+"","Value","Std. Error","t value","Pr(>|t|)"
+"(Intercept)",88.809,0.373,238.274,0
+"sexomujeres",-1.874,0.216,-8.677,0
+"sector_fusionadoprivado",-5.088,0.279,-18.266,0
+"region_fusionadasNOA NEA Cuyo",-2.236,0.232,-9.646,0
+"region_fusionadasPatagónica",2.651,0.384,6.904,0
+"grupos_edades_2[33,46)",2.072,0.261,7.927,0
+"grupos_edades_2[46,88]",0.95,0.291,3.26,0.001

@@ -1,0 +1,6 @@
+"summary(rq_P90)[[3]][, 1]"
+"(Intercept)";95,414248158733
+"sexomujeres";-0,638106900357542
+"sector_fusionadoprivado";-3,18442061475137
+"region_fusionadasNOA NEA Cuyo";-1,33740074088819
+"region_fusionadasPatagónica";1,20891297350565

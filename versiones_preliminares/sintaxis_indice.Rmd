@@ -1,0 +1,560 @@
+---
+title: "sintaxis_indice"
+author: "Eduardo Bologna"
+date: "9/12/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Cómputos para el índice  
+```{r}
+library(foreign)
+library(questionr)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+```
+
+
+## Lectura bases  
+```{r}
+eph_1_05<-read.dbf("bases_EPH/Ind_t105.DBF")
+eph_1_10<-read.dbf("bases_EPH/Ind_t110.dbf")
+eph_1_15<-read.dbf("bases_EPH/Ind_t115.dbf")
+eph_1_20<-read.table("bases_EPH/usu_individual_T120.txt", 
+                     header = TRUE, sep= ";")
+
+
+```
+
+## Se elige la base  
+```{r}
+base<-eph_1_05
+
+```
+
+## Rotulado de variables  
+```{r}
+# regiones rotuladas
+base$REGION<-as.factor(base$REGION)
+levels(base$REGION)<-c("Gran Buenos Aires", "NOA",
+                       "NEA", "Cuyo", "Pampeana", "Patagónica")
+
+# sexos rotulados
+base$CH04<-as.factor(base$CH04)
+levels(base$CH04)<-c("varones", "mujeres")
+# Grupos de edades
+
+base$CH06[base$CH06==-1]<-0
+base$grupos_edades<-cut(base$CH06, c(0,24,54,99))
+
+# Niveles educación
+base$NIVEL_ED[base$NIVEL_ED==9]<-NA
+base$NIVEL_ED[base$NIVEL_ED==7]<-0
+base$NIVEL_ED<-as.factor(base$NIVEL_ED)
+levels(base$NIVEL_ED)<-c("nunca asistió", "primario incompleto", "primario completo",
+                         "secundario incompleto", "secundario completo",
+                         "superior incompleto", "superior completo")
+
+```
+
+
+## Tasa de actividad para personas de 10 y más años  
+### De estado, (ocupados+desocupados)/total  
+```{r}
+
+mayores_9<-subset(base, base$CH06>9)
+mayores_9$ESTADO[mayores_9$ESTADO==0]<-NA
+
+tasa_actividad <- (((addmargins(wtd.table(mayores_9$ESTADO, weights = mayores_9$PONDERA)))[1]+
+                          (addmargins(wtd.table(mayores_9$ESTADO, weights = mayores_9$PONDERA)))[2])/
+                         (addmargins(wtd.table(mayores_9$ESTADO, weights = mayores_9$PONDERA)))[4])
+
+
+actividad_sexo<-mayores_9 %>%
+  group_by(CH04) %>% 
+  summarise(valor=(((addmargins(wtd.table(ESTADO, weights = PONDERA)))[1]+
+                                 (addmargins(wtd.table(ESTADO, weights = PONDERA)))[2])/
+                                (addmargins(wtd.table(ESTADO, weights = PONDERA)))[4]))
+
+gap_actividad_sexo<-100*round((actividad_sexo[1,2]-actividad_sexo[2,2])/actividad_sexo[1,2],4)
+
+
+actividad_region<-mayores_9 %>%
+  group_by(REGION) %>% 
+  summarise(valor=(((addmargins(wtd.table(ESTADO, weights = PONDERA)))[1]+
+                     (addmargins(wtd.table(ESTADO, weights = PONDERA)))[2])/
+                    (addmargins(wtd.table(ESTADO, weights = PONDERA)))[4]))
+
+gap_actividad_region<-100*round((max(actividad_region[,2])-
+                                   min(actividad_region[,2]))/max(actividad_region[,2]),4)
+
+
+actividad_edad<-mayores_9 %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=(((addmargins(wtd.table(ESTADO, weights = PONDERA)))[1]+
+                     (addmargins(wtd.table(ESTADO, weights = PONDERA)))[2])/
+                    (addmargins(wtd.table(ESTADO, weights = PONDERA)))[4]))
+
+gap_actividad_edad<-100*round((max(actividad_edad[,2])-
+                                min(actividad_edad[,2]))/max(actividad_edad[,2]),4)
+
+
+actividad_educacion<-mayores_9 %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=(((addmargins(wtd.table(ESTADO, weights = PONDERA)))[1]+
+                     (addmargins(wtd.table(ESTADO, weights = PONDERA)))[2])/
+                    (addmargins(wtd.table(ESTADO, weights = PONDERA)))[4]))
+
+gap_actividad_educacion<-100*round((max(actividad_educacion[,2])-
+                                 min(actividad_educacion[,2]))/max(actividad_educacion[,2]),4)
+
+```
+
+# Desocupación  
+## solo actives: desocupades/total  
+```{r}
+actives<-subset(base, base$ESTADO==1 | base$ESTADO==2)
+addmargins(table(actives$ESTADO))
+
+tasa_desocupacion <- addmargins(wtd.table(actives$ESTADO, weights = actives$PONDERA))[2]/
+                      addmargins(wtd.table(actives$ESTADO, weights = actives$PONDERA))[3]
+
+
+desocupacion_sexo<-actives %>%
+  group_by(CH04) %>% 
+  summarise(valor=(addmargins(wtd.table(ESTADO, weights = PONDERA))[2]/
+              addmargins(wtd.table(ESTADO, weights = PONDERA))[3]))
+
+gap_desocupacion_sexo<-100*round((desocupacion_sexo[1,2]-desocupacion_sexo[2,2])/
+                                   desocupacion_sexo[1,2],4)
+
+desocupacion_region<-actives %>%
+  group_by(REGION) %>% 
+  summarise(valor=(addmargins(wtd.table(ESTADO, weights = PONDERA))[2]/
+                    addmargins(wtd.table(ESTADO, weights = PONDERA))[3]))
+
+gap_desocupacion_region<-100*round((max(desocupacion_region[,2])-min(desocupacion_region[,2]))/
+                                     max(desocupacion_region[,2]),4)
+
+
+desocupacion_edad<-actives %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=(addmargins(wtd.table(ESTADO, weights = PONDERA))[2]/
+                    addmargins(wtd.table(ESTADO, weights = PONDERA))[3]))
+
+gap_desocupacion_edad<-100*round((max(desocupacion_edad[,2])-min(desocupacion_edad[,2]))/
+                                     max(desocupacion_edad[,2]),4)
+
+
+desocupacion_educacion<-actives %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=(addmargins(wtd.table(ESTADO, weights = PONDERA))[2]/
+                    addmargins(wtd.table(ESTADO, weights = PONDERA))[3]))
+
+gap_desocupacion_educacion<-100*round((max(desocupacion_educacion[,2])-min(desocupacion_educacion[,2]))/
+                                     max(desocupacion_educacion[,2]),4)
+
+```
+
+# Proporción de cuentapropistas  
+## solo ocupades (CAT_OCUP==2)/total  
+
+```{r}
+ocupades<-subset(base, base$ESTADO==1)
+addmargins(table(ocupades$CAT_OCUP))
+addmargins(wtd.table(ocupades$CAT_OCUP, weights = ocupades$PONDERA))
+prop_independientes<-(addmargins(wtd.table(ocupades$CAT_OCUP, weights = ocupades$PONDERA)))[2]/
+                        (addmargins(wtd.table(ocupades$CAT_OCUP, weights = ocupades$PONDERA)))[5]
+                                
+
+prop_independientes_sexo<-ocupades %>%
+  group_by(CH04) %>% 
+  summarise(valor=(addmargins(wtd.table(CAT_OCUP, weights = PONDERA)))[2]/
+              (addmargins(wtd.table(CAT_OCUP, weights = PONDERA)))[5])
+
+gap_prop_independientes_sexo<-100*round((prop_independientes_sexo[1,2]-prop_independientes_sexo[2,2])/
+                                          prop_independientes_sexo[1,2],4)
+
+prop_independientes_region<-ocupades %>%
+  group_by(REGION) %>% 
+  summarise(valor=(addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[2]/
+                    addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[5]))
+
+gap_prop_independientes_region<-100*round((max(prop_independientes_region[,2])-
+                                             min(prop_independientes_region[,2]))/
+                                     max(prop_independientes_region[,2]),4)
+
+
+prop_independientes_edad<-ocupades %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=(addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[2]/
+                    addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[5]))
+
+gap_prop_independientes_edad<-100*round((max(prop_independientes_edad[,2])-
+                                           min(prop_independientes_edad[,2]))/
+                                   max(prop_independientes_edad[,2]),4)
+
+
+prop_independientes_educacion<-ocupades %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=(addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[2]/
+                    addmargins(wtd.table(CAT_OCUP, weights = PONDERA))[5]))
+
+gap_prop_independientes_educacion<-100*round((max(prop_independientes_educacion[,2])-
+                                                min(prop_independientes_educacion[,2]))/
+                                        max(prop_independientes_educacion[,2]),4)
+```
+
+# Seguridad  
+## solo asalariades: permanencia + obra social + aguinaldo + vacaciones + dias por enfermedad + descuento jubilatorio
+
+```{r}
+asalariades<-subset(base, base$CAT_OCUP==3)
+
+table(asalariades$PP07C)
+asalariades$PP07C[asalariades$PP07C==0]<-NA
+asalariades$PP07C[asalariades$PP07C==9]<-NA
+asalariades$estabilidad<-asalariades$PP07C-1
+table(asalariades$estabilidad)
+
+
+table(asalariades$PP07G1)
+asalariades$PP07G1[asalariades$PP07G1==0]<-NA
+asalariades$PP07G1[asalariades$PP07G1==9]<-NA
+asalariades$vacaciones <-asalariades$PP07G1
+asalariades$vacaciones[asalariades$vacaciones==2]<-0
+table(asalariades$vacaciones)
+
+
+table(asalariades$PP07G2)
+asalariades$PP07G2[asalariades$PP07G2==0]<-NA
+asalariades$PP07G2[asalariades$PP07G2==9]<-NA
+asalariades$aguinaldo<-asalariades$PP07G2
+asalariades$aguinaldo[asalariades$aguinaldo==2]<-0
+table(asalariades$aguinaldo)
+
+
+table(asalariades$PP07G3)
+asalariades$PP07G3[asalariades$PP07G3==0]<-NA
+asalariades$PP07G3[asalariades$PP07G3==9]<-NA
+asalariades$dias_enfermedad<-asalariades$PP07G3
+asalariades$dias_enfermedad[asalariades$dias_enfermedad==2]<-0
+table(asalariades$dias_enfermedad)
+
+table(asalariades$PP07G4)
+asalariades$PP07G4[asalariades$PP07G4==0]<-NA
+asalariades$PP07G4[asalariades$PP07G4==9]<-NA
+asalariades$obra_social<-asalariades$PP07G4
+asalariades$obra_social[asalariades$obra_social==2]<-0
+table(asalariades$obra_social)
+
+table(asalariades$PP07H)
+asalariades$PP07H[asalariades$PP07H==0]<-NA
+asalariades$PP07H[asalariades$PP07H==9]<-NA
+asalariades$aporte_jubilatorio<-asalariades$PP07H
+asalariades$aporte_jubilatorio[asalariades$aporte_jubilatorio==2]<-0
+table(asalariades$aporte_jubilatorio)
+
+
+asalariades$seguridad<-(asalariades$estabilidad + asalariades$vacaciones+
+                          asalariades$aguinaldo + asalariades$dias_enfermedad+
+                          asalariades$obra_social+
+                          asalariades$aporte_jubilatorio)/6
+
+
+
+seguridad<-round(wtd.mean(asalariades$seguridad, weights = asalariades$PONDERA),3)
+
+
+seguridad_sexo<-asalariades %>%
+  group_by(CH04) %>% 
+  summarise(valor=wtd.mean(seguridad, weights = PONDERA))
+
+gap_seguridad_sexo<-100*round((seguridad_sexo[1,2]-seguridad_sexo[2,2])/
+                                seguridad_sexo[1,2],4)
+
+
+seguridad_region<-asalariades %>%
+  group_by(REGION) %>% 
+  summarise(valor=wtd.mean(seguridad, weights = PONDERA))
+
+min(seguridad_region)[,2]
+gap_seguridad_region<-100*round((max(seguridad_region[,2])-min(seguridad_region[,2]))/
+                                   max(seguridad_region[,2]),4)
+
+
+seguridad_edad<-asalariades %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=wtd.mean(seguridad, weights = PONDERA))
+
+gap_seguridad_edad<-100*round((max(seguridad_edad[,2])-min(seguridad_edad[,2]))/
+                                  max(seguridad_edad[,2]),4)
+
+seguridad_educacion<-asalariades %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(seguridad, weights = PONDERA))
+
+gap_seguridad_educacion<-100*round((max(seguridad_educacion[,2])-min(seguridad_educacion[,2]))/
+                                max(seguridad_educacion[,2]),4)
+
+```
+
+# Ingresos  
+## solo ocupades sin ceros, perdidos y 1% superior    
+
+```{r}
+summary(ocupades$PP08D1)
+ocupades$PP08D1[ocupades$PP08D1==-9]<-NA
+ocupades$PP08D1[ocupades$PP08D1==0]<-NA
+ocupades$PP08D1[ocupades$PP08D1>quantile(
+  ocupades$PP08D1,.99, na.rm = TRUE)]<-NA
+ocupades$ingresos<-ocupades$PP08D1
+summary(ocupades$ingresos)
+
+ingresos<-wtd.mean(ocupades$ingresos, weights = ocupades$PONDERA)
+
+
+ingreso_sexo<-ocupades %>%
+  group_by(CH04) %>% 
+  summarise(valor=wtd.mean(ingresos, weights = PONDERA))
+
+gap_ingreso_sexo<-100*round((ingreso_sexo[1,2]-ingreso_sexo[2,2])/
+                                ingreso_sexo[1,2],4)
+
+
+ingreso_region<-ocupades %>%
+  group_by(REGION) %>% 
+  summarise(valor=wtd.mean(ingresos, weights = PONDERA))
+
+gap_ingreso_region<-100*round((max(ingreso_region[,2])-min(ingreso_region[,2]))/
+                                    max(ingreso_region[,2]),4)
+  
+  
+ingreso_edad<-ocupades %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=wtd.mean(ingresos, weights = PONDERA))
+
+gap_ingreso_edad<-100*round((max(ingreso_edad[,2])-min(ingreso_edad[,2]))/
+                                max(ingreso_edad[,2]),4)
+
+
+ingreso_educacion<-ocupades %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(ingresos, weights = PONDERA))
+
+gap_ingreso_educacion<-100*round((max(ingreso_educacion[,2])-min(ingreso_educacion[,2]))/
+                              max(ingreso_educacion[,2]),4)
+
+```
+
+# Horas  
+## solo oocupades: sin ceros y > 84  
+```{r}
+ocupades$horas_semana<-ocupades$PP3E_TOT
+ocupades$horas_semana[ocupades$horas_semana==0]<-NA
+ocupades$horas_semana[ocupades$horas_semana>84]<-NA
+summary(ocupades$horas_semana)
+```
+
+# Ingresos - hora  
+## solo ocupades: horas semanales por cuatro  
+```{r}
+ocupades$ingreso_hora<-ocupades$ingresos/(ocupades$horas_semana*4)
+summary(ocupades$ingreso_hora)
+
+
+ingreso_hora<-wtd.mean(ocupades$ingreso_hora, weights = ocupades$PONDERA)
+
+ingreso_hora_sexo<-ocupades %>%
+  group_by(CH04) %>% 
+  summarise(valor=wtd.mean(ingreso_hora, weights = PONDERA))
+
+gap_ingreso_hora_sexo<-100*round((ingreso_hora_sexo[1,2]-ingreso_hora_sexo[2,2])/
+                              ingreso_hora_sexo[1,2],4)
+
+
+ingreso_hora_region<-ocupades %>%
+  group_by(REGION) %>% 
+  summarise(valor=wtd.mean(ingreso_hora, weights = PONDERA))
+
+gap_ingreso_hora_region<-100*round((max(ingreso_hora_region[,2])-min(ingreso_hora_region[,2]))/
+                                max(ingreso_hora_region[,2]),4)
+
+
+ingreso_hora_edad<-ocupades %>%
+  group_by(grupos_edades) %>% 
+  summarise(valor=wtd.mean(ingreso_hora, weights = PONDERA))
+
+gap_ingreso_hora_edad<-100*round((max(ingreso_hora_edad[,2])-min(ingreso_hora_edad[,2]))/
+                              max(ingreso_hora_edad[,2]),4)
+
+
+ingreso_hora_educacion<-ocupades %>%
+  group_by(NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(ingreso_hora, weights = PONDERA))
+
+gap_ingreso_hora_educacion<-100*round((max(ingreso_hora_educacion[,2])-min(ingreso_hora_educacion[,2]))/
+                                   max(ingreso_hora_educacion[,2]),4)
+
+```
+
+# Resumen gaps  
+
+```{r}
+fronteras<-c("sexo", "región", "grupos de edades", "educación")
+tasa_de_actividad<-c(gap_actividad_sexo[1,1],
+                     gap_actividad_region, gap_actividad_edad,
+                     gap_actividad_educacion)
+tasa_de_desocupacion<-c(gap_desocupacion_sexo[1,1],
+                        gap_desocupacion_region, gap_desocupacion_edad,
+                        gap_desocupacion_educacion)
+seguridad_laboral<-c(gap_seguridad_sexo[1,1],
+                     gap_seguridad_region, gap_seguridad_edad,
+                     gap_seguridad_educacion)
+proporcion_de_cuentapropistas<-c(gap_prop_independientes_sexo[1,1],
+                                 gap_prop_independientes_region, gap_prop_independientes_edad,
+                                 gap_prop_independientes_educacion)
+ingresos_mes<-c(gap_ingreso_sexo[1,1],
+                gap_ingreso_region, gap_ingreso_edad,
+                gap_ingreso_educacion)
+ingresos_por_hora<-c(gap_ingreso_hora_sexo[1,1],
+                     gap_ingreso_hora_region,gap_ingreso_hora_edad,
+                     gap_ingreso_hora_educacion)
+
+
+gaps<-data.frame(cbind(fronteras, tasa_de_actividad, tasa_de_desocupacion,
+                       proporcion_de_cuentapropistas, seguridad_laboral,
+                       ingresos_mes, ingresos_por_hora))
+
+
+write.csv(gaps, "gaps.csv")
+
+valores_actividad<-data.frame(rbind(actividad_sexo, actividad_region,
+                                    actividad_edad, actividad_educacion))
+por_sexos<-data.frame(rbind(actividad_sexo, desocupacion_sexo, prop_independientes_sexo,
+                            seguridad_sexo, ingreso_sexo, ingreso_hora_sexo))
+
+por_region<-data.frame(rbind(actividad_region, desocupacion_region,
+                             prop_independientes_region, seguridad_region,
+                             ingreso_region, ingreso_hora_region))
+write.csv(por_region, "por_region.csv")
+
+```
+
+# Todes juntes  
+
+```{r}
+actividad_todes<-mayores_9 %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=(((addmargins(wtd.table(ESTADO, weights = PONDERA)))[1]+
+                      (addmargins(wtd.table(ESTADO, weights = PONDERA)))[2])/
+                     (addmargins(wtd.table(ESTADO, weights = PONDERA)))[4]))
+names(actividad_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                          "tasa de actividad")
+
+desocupacion_todes<-actives %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=(addmargins(wtd.table(ESTADO, weights = PONDERA))[2]/
+                     addmargins(wtd.table(ESTADO, weights = PONDERA))[3]))
+names(desocupacion_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                          "tasa de desocupación")
+
+prop_independientes_todes<-ocupades %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=(addmargins(wtd.table(CAT_OCUP, weights = PONDERA)))[2]/
+              (addmargins(wtd.table(CAT_OCUP, weights = PONDERA)))[5])
+names(prop_independientes_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                             "proporción de cuenta propia")
+
+seguridad_todes<-asalariades %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(seguridad, weights = PONDERA))
+names(seguridad_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                             "índice de seguridad laboral")
+
+ingreso_todes<-ocupades %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(ingresos, weights = PONDERA))
+names(ingreso_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                             "media de ingresos laborales")
+
+ingreso_hora_todes<-ocupades %>%
+  group_by(CH04, REGION, grupos_edades, NIVEL_ED) %>% 
+  summarise(valor=wtd.mean(ingreso_hora, weights = PONDERA))
+names(ingreso_hora_todes)<-c("sexo", "región", "grupo de edades", "educación",
+                             "media de ingresos por hora")
+
+u<-merge(actividad_todes, desocupacion_todes, all.x = TRUE)
+u<-merge(u,prop_independientes_todes, all.x = TRUE)
+u<-merge(u,seguridad_todes, all.x = TRUE)
+u<-merge(u, ingreso_todes, all.x = TRUE)
+u<-merge(u,ingreso_hora_todes, all.x = TRUE)
+
+```
+
+# Visualizaciones  
+
+```{r}
+ggplot(actividad_sexo)+geom_bar(aes(CH04, valor), fill="green", stat="identity")+xlab ("sexo")+
+  ylab("tasa de actividad")+coord_flip()+theme_tufte()
+ggplot(actividad_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("tasa de actividad")+coord_flip()+theme_tufte()
+ggplot(actividad_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+ylab("tasa de actividad")+coord_flip()+theme_tufte()
+ggplot(actividad_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+ylab("tasa de actividad")+coord_flip()+theme_tufte()
+
+
+ggplot(desocupacion_sexo)+geom_bar(aes(CH04, valor), fill="green",stat="identity")+xlab ("sexo")+
+  ylab("tasa de desocupacion")+coord_flip()+theme_tufte()
+ggplot(desocupacion_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("tasa de desocupacion")+coord_flip()+theme_tufte()
+ggplot(desocupacion_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+  ylab("tasa de desocupacion")+coord_flip()+theme_tufte()
+ggplot(desocupacion_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+  ylab("tasa de desocupacion")+coord_flip()+theme_tufte()
+
+
+ggplot(prop_independientes_sexo)+geom_bar(aes(CH04, valor), fill="green",stat="identity")+xlab ("sexo")+
+  ylab("proporción de cuentapropistas")+coord_flip()+theme_tufte()
+ggplot(prop_independientes_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("proporción de cuentapropistas")+coord_flip()+theme_tufte()
+ggplot(prop_independientes_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+  ylab("proporción de cuentapropistas")+coord_flip()+theme_tufte()
+ggplot(prop_independientes_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+  ylab("proporción de cuentapropistas")+coord_flip()+theme_tufte()
+
+ggplot(seguridad_sexo)+geom_bar(aes(CH04, valor), fill="green",stat="identity")+xlab ("sexo")+
+  ylab("índice de seguridad laboral")+coord_flip()+theme_tufte()
+ggplot(seguridad_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("índice de seguridad laboral")+coord_flip()+theme_tufte()
+ggplot(seguridad_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+  ylab("índice de seguridad laboral")+coord_flip()+theme_tufte()
+ggplot(seguridad_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+  ylab("índice de seguridad laboral")+coord_flip()+theme_tufte()
+
+ggplot(ingreso_sexo)+geom_bar(aes(CH04, valor), fill="green",stat="identity")+xlab ("sexo")+
+  ylab("media de ingresos laborales")+coord_flip()+theme_tufte()
+ggplot(ingreso_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("media de ingresos laborales")+coord_flip()+theme_tufte()
+ggplot(ingreso_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+  ylab("media de ingresos laborales")+coord_flip()+theme_tufte()
+ggplot(ingreso_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+  ylab("media de ingresos laborales")+coord_flip()+theme_tufte()
+
+ggplot(ingreso_hora_sexo)+geom_bar(aes(CH04, valor), fill="green",stat="identity")+xlab ("sexo")+
+  ylab("media de ingresos laborales por hora")+coord_flip()+theme_tufte()
+ggplot(ingreso_hora_region)+geom_bar(aes(REGION, valor), fill="green",stat="identity")+xlab("regiones")+
+  ylab("media de ingresos laborales por hora")+coord_flip()+theme_tufte()
+ggplot(ingreso_hora_edad)+geom_bar(aes(grupos_edades, valor), fill="green",stat="identity")+xlab("grupos de edades")+
+  ylab("media de ingresos laborales por hora")+coord_flip()+theme_tufte()
+ggplot(ingreso_hora_educacion)+geom_bar(aes(NIVEL_ED, valor), fill="green",stat="identity")+xlab("nivel de educación")+
+  ylab("media de ingresos laborales por hora")+coord_flip()+theme_tufte()
+
+```
+
