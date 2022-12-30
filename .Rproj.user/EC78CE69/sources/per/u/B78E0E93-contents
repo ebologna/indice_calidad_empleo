@@ -1,0 +1,274 @@
+summary(subset(base, base$PP04B1==1 & base$año==2015)$P47T)
+
+
+
+ocupades$ingreso_hora_zb=
+  ocupades$ingreso_hora_bruto-
+  wtd.mean(
+    ocupades$ingreso_hora_bruto,
+    weights = ocupades$PONDERA)/sqrt(wtd.var(
+      ocupades$ingreso_hora_bruto,
+      weights=ocupades$PONDERA))
+
+ocupades[348602, ]
+x<-rexp(300000)
+z<-(log(x)-mean(log(x)))/sd(log(x))
+df<-data.frame(x,z)
+ggplot(df)+geom_histogram(aes(x))+theme_tufte()
+ggplot(df)+geom_histogram(aes(z))+theme_tufte()
+
+
+## Components´ correlation  
+
+#Spearman´s $\rho$  
+
+
+ocupades$consistencia<-as.numeric(as.character(ocupades$consistencia))
+
+matriz_correl<-rcorr(as.matrix(data.frame(ocupades$seguridad,
+                                          ocupades$consistencia,
+                                          ocupades$ingreso_hora)), type =
+                       "spearman")
+r<-round(matriz_correl[[1]],3)
+
+r
+
+ggcorrplot(r, hc.order = TRUE, type = "lower",
+           lab = TRUE)
+
+cor.test(ocupades$seguridad, ocupades$ingreso_hora, type = "spearman")
+cor.test(ocupades$seguridad, ocupades$consistencia, type = "spearman")
+cor.test(ocupades$consistencia, ocupades$ingreso_hora, type = "spearman")
+
+
+# todos los análisis llevan selección de base, o agrupando por año
+
+calidad_por_año<-ocupades %>% 
+  group_by(año) %>% 
+  summarise(media=mean(calif_num, na.rm = T))
+
+ggplot(calidad_por_año)+geom_point(aes(año, media))
+
+ocupades %>% 
+  group_by(año, sexo) %>% 
+  summarise(media=mean(calif_num, na.rm = T))
+
+ocupades %>% 
+  group_by(año, sector) %>% 
+  summarise(media=mean(calif_num, na.rm = T))
+
+table(ocupades$consistencia, ocupades$sector)
+
+ggplot(ocupades)+geom_point(aes(año, media_calidadB_año))+
+  xlab("Año")+ylab("Calidad ocupación (opción B")+theme_tufte()
+
+
+# Comparaciones simples  
+
+
+
+
+# Regresión  
+
+
+rq_P10 <- rq(calidad ~ sexo+sector_fusionado+
+               region_fusionadas,
+             tau = .1, data = ocupades)
+
+
+rq_P50 <- rq(calidad ~ sexo+sector_fusionado+
+               region_fusionadas,
+             tau = .5, data = ocupades)
+
+
+rq_P90 <- rq(calidad ~ sexo+sector_fusionado+
+               region_fusionadas,
+             tau = .9, data = ocupades)
+
+
+round(summary(rq_P10)[[3]], 3)
+round(summary(rq_P50)[[3]],3)
+round(summary(rq_P90)[[3]],3)
+
+
+
+
+# Gaps  
+
+## Distribución de varones y mujeres por sectores  
+
+
+100*round(addmargins(prop.table(table(ocupades$sexo,
+                                      ocupades$sector_fusionado),2),1),3)
+
+100*round(addmargins(prop.table(table(ocupades$region_fusionadas,
+                                      ocupades$sector_fusionado),1),2),3)
+
+
+
+
+
+## General
+
+por_sexo
+por_sexo[3][[1]][2]
+gap_sexo<-100*(por_sexo[3][[1]][1]-por_sexo[3][[1]][2])/por_sexo[3][[1]][1]
+gap_sexo
+
+
+
+
+## Por sectores  
+
+gap_sexo_sector<-ocupades %>%
+  group_by(sector, sexo) %>%
+  summarise(mediana=wtd.quantile(calidad, weights = PONDERA, .50), casos=n())
+
+gap_sexo_sector <- as.data.frame(gap_sexo_sector)
+
+gap_sexo_estatal<-
+  100*(gap_sexo_sector[1,3]-gap_sexo_sector[2,3])/
+  gap_sexo_sector[1,3]
+gap_sexo_privado<-100*(gap_sexo_sector[3,3]-gap_sexo_sector[4,3])/
+  gap_sexo_sector[3,3]
+gap_sexo_otro<-100*(gap_sexo_sector[5,3]-gap_sexo_sector[6,3])/
+  gap_sexo_sector[5,3]
+
+# es la media ponderada de los gaps estatal y otro
+gap_sexo_estatal_y_otro<-(gap_sexo_estatal*(gap_sexo_sector[1,4]+
+                                              gap_sexo_sector[2,4])+gap_sexo_otro*(gap_sexo_sector[5,4]+
+                                                                                     gap_sexo_sector[6,4]))/(gap_sexo_sector[1,4]+gap_sexo_sector[2,4]+
+                                                                                                               gap_sexo_sector[5,4]+gap_sexo_sector[6,4])
+
+sector<-c("estatal y otro", "privado")
+gap_sexo_sector<-c(gap_sexo_estatal_y_otro, gap_sexo_privado)
+a<-data.frame(sector, gap_sexo_sector)
+a
+
+
+
+## Por región  
+
+gap_sexo_region <- ocupades %>%
+  group_by(REGION_rot, sexo) %>%
+  summarise(mediana=wtd.quantile(calidad, weights = PONDERA, .50), casos=n())
+
+gap_sexo_region<-as.data.frame(gap_sexo_region)
+
+gap_sexo_GBA<-100*(gap_sexo_region[1,3]-gap_sexo_region[2,3])/
+  gap_sexo_region[1,3]
+
+gap_sexo_NOA<-100*(gap_sexo_region[3,3]-gap_sexo_region[4,3])/
+  gap_sexo_region[3,3]
+
+gap_sexo_NEA<-100*(gap_sexo_region[5,3]-gap_sexo_region[6,3])/
+  gap_sexo_region[5,3]
+
+gap_sexo_Cuyo<-100*(gap_sexo_region[7,3]-gap_sexo_region[8,3])/
+  gap_sexo_region[7,3]
+gap_sexo_Pampeana<-100*(gap_sexo_region[9,3]-gap_sexo_region[10,3])/
+  gap_sexo_region[9,3]
+
+gap_sexo_Patagonica<-100*(gap_sexo_region[11,3]-gap_sexo_region[12,3])/
+  gap_sexo_region[11,3]
+
+region<-c("GBA", "NOA", "NEA", "Cuyo", "Pampeana", "Patagónica")
+gap_sexo_region_1<-c(gap_sexo_GBA, gap_sexo_NOA, gap_sexo_NEA, gap_sexo_Cuyo,
+                     gap_sexo_Pampeana, gap_sexo_Patagonica)
+
+region<-c("GBA", "NOA", "NEA", "Cuyo", "Pampeana", "Patagónica")
+gap_sexo_region_2<-c(gap_sexo_GBA, gap_sexo_NOA, gap_sexo_NEA, gap_sexo_Cuyo,
+                     gap_sexo_Pampeana, gap_sexo_Patagonica)
+
+gap_sexo_region_tabla<-data.frame(region, gap_sexo_region_2)
+gap_sexo_region_tabla
+
+# agrupo regiones con diferencia no significativa
+gap_sexo_NOA_NEA_Cuyo<-(gap_sexo_NOA*(gap_sexo_region[3,4]+
+                                        gap_sexo_region[4,4]) +gap_sexo_NEA*(gap_sexo_region[5,4]+gap_sexo_region[6,4]) +gap_sexo_Cuyo*(
+                                          gap_sexo_region[7,4]+gap_sexo_region[8,4]
+                                        ))/(
+                                          gap_sexo_region[3,4]+
+                                            gap_sexo_region[4,4]+
+                                            gap_sexo_region[5,4]+
+                                            gap_sexo_region[6,4]+
+                                            gap_sexo_region[7,4]+
+                                            gap_sexo_region[8,4]
+                                        )
+
+gap_sexo_pampeana_y_buenos_aires<-
+  (gap_sexo_GBA*(gap_sexo_region[1,4]+gap_sexo_region[2,4])+
+     gap_sexo_Pampeana*(gap_sexo_region[9,4]+gap_sexo_region[10,4]))/
+  (gap_sexo_region[1,4]+gap_sexo_region[2,4]+
+     gap_sexo_region[9,4]+gap_sexo_region[10,4])
+
+gap_sexo_region_fusionadas<-c(gap_sexo_NOA_NEA_Cuyo,
+                              gap_sexo_pampeana_y_buenos_aires,
+                              gap_sexo_Patagonica)
+
+b<-data.frame(region, gap_sexo_region)
+b
+
+
+# Las tres variables y su efecto en el índice de calidad  
+
+
+ocupades %>%
+  group_by(sexo, REGION_rot, sector_fusionado) %>%
+  summarise(mediana=median(calidad, na.rm=TRUE), casos=n())
+
+
+
+# Para lectura longitudinal  
+
+
+# brecha
+gap_sexo
+
+# sexo por sectores
+u<-questionr::wtd.table(ocupades$sexo,
+                        ocupades$sector_fusionado, weights = ocupades$PONDERA)
+100*round(addmargins(prop.table(u,1),2),3)
+
+
+# tasa de actividad
+base$active<-1
+base$active[base$ESTADO==0]<-0
+base$active[base$ESTADO==3]<-0
+base$active[base$ESTADO==4]<-0
+
+table(base$ESTADO, base$active)
+
+t.test(base$active, alternative="two.sided")
+t.test(subset(base, base$CH04==1)$active, alternative="two.sided")
+t.test(subset(base, base$CH04==2)$active, alternative="two.sided")
+
+
+
+
+## Bimodalidad  
+
+ggplot(ocupades)+geom_histogram(aes(calidad))+facet_grid(.~sexo)
+ggplot(ocupades)+geom_histogram(aes(calidad))+facet_grid(.~sector_fusionado)
+ggplot(ocupades)+geom_histogram(aes(calidad))+facet_grid(.~region_fusionadas)
+
+
+
+# Occupational hierarchy by sex  
+
+
+ocupades$jerarquia.ocup= substr(ocupades$PP04D_COD, 3,3)
+ocupades$jerarquia.ocup[ocupades$jerarquia.ocup>3]<-NA
+
+
+addmargins(questionr::wtd.table(ocupades$jerarquia.ocup, ocupades$sexo, weights = 
+                                  ocupades$PONDERA),1)
+
+100*round(addmargins(
+  prop.table(
+    questionr::wtd.table(
+      ocupades$jerarquia.ocup, ocupades$sexo, weights = 
+        ocupades$PONDERA),2),1), 4)
+
+
+
